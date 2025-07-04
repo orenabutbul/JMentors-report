@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import math
 from pandas.api.types import is_numeric_dtype, is_object_dtype
+import streamlit as st
 
 DATA_DIR = "C:\\Users\\Owner\\OneDrive\\Desktop\\Dan's project"
 
@@ -46,9 +47,10 @@ def group_by_cohort(data_dict):
     return grouped
 
 def preprocess_df(df):
-    cols_to_drop = [0,11] + list(range(13, len(df.columns)))
+    cols_to_drop = [i for i in [0, 11] + list(range(13, 100)) if i < len(df.columns)]
     df.drop(df.columns[cols_to_drop], axis=1, inplace=True, errors='ignore')
-    df.columns = ['Your Name', 
+    print(f"Preprocessing: {df.shape[1]} columns")
+    expected_cols  = ['Your Name', 
                   'Rate your experience', 
                   'Would you recommend the program?', 
                   'Would you consider serving as a mentor?', 
@@ -59,11 +61,16 @@ def preprocess_df(df):
                   'Comfortable sharing information?',
                   'Valuable experience?',  
                   'Program impact?']
-    df.columns = df.columns.str.lower().str.strip()
+    
+    if len(df.columns) == len(expected_cols):
+        df.columns = expected_cols
+        df.columns = df.columns.astype(str).str.lower().str.strip()
+    elif len(df.columns) == 10 and 'your name' not in df.columns.str.lower().tolist():
+        df.columns = df.columns.str.lower().str.strip()
     str_cols = df.select_dtypes(include='object').columns
-    df[str_cols] = df[str_cols].apply(lambda col: col.str.strip())
+    df[str_cols] = df[str_cols].apply(lambda col: col.astype(str).str.strip())
     name_col = df.columns[0]
-    df[name_col] = df[name_col].str.lower()    
+    df[name_col] = df[name_col].astype(str).str.lower()    
     return df
 
 def preprocess_matches(df):
@@ -111,7 +118,7 @@ def participation(merged, base = 'rate your experience'):
     axs[1].axis('equal')
 
     plt.tight_layout()
-    plt.show()
+    st.pyplot(fig)
 
 def ave_mentor_mentee(mentors, mentees , cohort = ""):
     mentors_mean = mentors.mean(numeric_only = True)
@@ -130,11 +137,11 @@ def ave_mentor_mentee(mentors, mentees , cohort = ""):
     plt.axis('equal')
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
-    plt.show()
+    st.pyplot(plt.gcf())
 
 def bar_graph(merged):
-    mentor_names = merged['mentor_name'].combine_first(merged['your name_mentor']).fillna('Unknown Mentor')
-    mentee_names = merged['mentee_name'].combine_first(merged['your name_mentee']).fillna('Unknown Mentee')
+    mentor_names = merged['mentor_name'].fillna('Unknown Mentor')
+    mentee_names = merged['mentee_name'].fillna('Unknown Mentee')
     pair_label = mentor_names + ' - ' + mentee_names
     questions = []
     for col in merged.columns:
@@ -174,7 +181,7 @@ def bar_graph(merged):
         axs[i].set_visible(False)
         
     plt.tight_layout()
-    plt.show()
+    st.pyplot(fig)
 
 def plot_cat(merged):
     questions = []
@@ -213,7 +220,7 @@ def plot_cat(merged):
         axs[i].set_xticklabels(axs[i].get_xticklabels(), rotation=44)
 
     plt.tight_layout()
-    plt.show()
+    st.pyplot(fig)
 
 def trend_data(records, merged, cohort, timepoint):
     questions = [
@@ -247,11 +254,21 @@ def trend_data(records, merged, cohort, timepoint):
         })
 
 def plot_trends(trend_df):
+    trend_df = pd.DataFrame(trend_df)
     trend_df['sort_key'] = trend_df['cohort'].astype(int) * 10 + trend_df['time'].map({'mid': 0, 'eop': 1})
     trend_df = trend_df.sort_values('sort_key')
     trend_df['cohort_time'] = trend_df['cohort'].astype(str) + '_' + trend_df['time']
-    for q in trend_df['question'].unique():
-        plt.figure(figsize=(10, 6))
+
+    questions = trend_df['question'].unique()
+    n = len(questions)
+    n_cols = 2
+    n_rows = math.ceil(n / n_cols)
+
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(14, 5 * n_rows))
+    axs = axs.flatten()
+
+    for i, q in enumerate(questions):
+        ax = axs[i]
         data = trend_df[trend_df['question'] == q]
         sns.lineplot(
             data=data,
@@ -260,16 +277,21 @@ def plot_trends(trend_df):
             hue='group',
             markers=True,
             style='group',
-            dashes=False
+            dashes=False,
+            ax=ax
         )
-        plt.title(f"Trend for '{q.replace('_', ' ').capitalize()}' over time")
-        plt.xlabel("Cohort")
-        plt.ylabel("Average Score")
-        plt.ylim(0, 10)
-        plt.legend(title='Group & Time')
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
+        ax.set_title(f"Trend for '{q.replace('_', ' ').capitalize()}' over time")
+        ax.set_xlabel("Cohort")
+        ax.set_ylabel("Average Score")
+        ax.set_ylim(0, 10)
+        ax.legend(title='Group & Time')
+        ax.grid(True)
+        ax.tick_params(axis='x', rotation=45)
+    for j in range(i + 1, len(axs)):
+        axs[j].axis('off')
+
+    plt.tight_layout()
+    st.pyplot(fig)
 
 all_data = load_csv_files(DATA_DIR)
 grouped_data = group_by_cohort(all_data)
@@ -291,5 +313,4 @@ for cohort, files in grouped_data.items():
     except KeyError as e:
         print(f"Missing data for cohort {cohort}: {e}")
 
-trend_records = pd.DataFrame(trend_records)
-plot_trends(trend_records)
+#plot_trends(trend_records)
