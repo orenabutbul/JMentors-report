@@ -3,6 +3,8 @@ import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import seaborn as sns
+import math
+from pandas.api.types import is_numeric_dtype
 
 DATA_DIR = "C:\\Users\\Owner\\OneDrive\\Desktop\\Dan's project"
 
@@ -43,72 +45,150 @@ def group_by_cohort(data_dict):
             grouped.setdefault(cohort, {})[key] = df
     return grouped
 
-def merge_mentor_mentee(matches, mentees_data, mentors_sata):
-    return(matches[['Mentor Name', 'Mentee Name']]
-           .merge(mentees_data, left_on='Mentee Name', right_on='Your Name', how='left')
-           .merge(mentors_sata, left_on='Mentor Name', right_on='Your Name', how='left', suffixes=('_mentee', '_mentor'))
-           .drop(columns=['Your Name_mentee', 'Your Name_mentor']).fillna(-1))
+def preprocess_df(df):
+    cols_to_drop = [0,11] + list(range(13, len(df.columns)))
+    df.drop(df.columns[cols_to_drop], axis=1, inplace=True, errors='ignore')
+    df.columns = ['Your Name', 
+                  'Rate your experience', 
+                  'Would you recommend the program?', 
+                  'Would you consider serving as a mentor?', 
+                  'Were the articles helpful?', 
+                  'How often did you meet?', 
+                  'Did you meet enough?', 
+                  'Describe your relationship',
+                  'Comfortable sharing information?',
+                  'Valuable experience?',  
+                  'Program impact?']
+    df.columns = df.columns.str.lower().str.strip()
+    str_cols = df.select_dtypes(include='object').columns
+    df[str_cols] = df[str_cols].apply(lambda col: col.str.strip())
+    name_col = df.columns[0]
+    df[name_col] = df[name_col].str.lower()    
+    return df
 
-def distributions(df, title_prefix = ''):
-    mentee_cols = [col for col in df if '_mentee' in col and 'Timestamp' not in col]
-    mentor_cols = [col for col in df if '_mentor' in col and 'Timestamp' not in col]
+def preprocess_matches(df):
+    df = df[['Mentor Name', 'Mentee Name']].copy()
+    df['Mentor Name'] = df['Mentor Name'].str.strip().str.lower()
+    df['Mentee Name'] = df['Mentee Name'].str.strip().str.lower()
+    df.columns = ['mentor_name', 'mentee_name']
+    df.dropna(how = 'all', inplace=True)
+    return df
 
-    mentee_df = df[['Mentee Name'] + mentee_cols].melt(id_vars = 'Mentee Name', var_name = 'question', value_name = 'response')
-    mentee_df['role'] = 'mentee'
-    mentee_df['question'] = mentee_df['question'].str.replace('_mentee', '', regex=False)
+def merge_mentor_mentee(mentor_df, mentee_df, matches):
+    merged = pd.merge(matches, mentor_df, left_on='mentor_name', right_on='your name', how='outer')
+    merged = pd.merge(merged, mentee_df, left_on='mentee_name', right_on='your name', how='outer', suffixes=('_mentor', '_mentee'))
+    merged.drop(columns=['your name_mentor', 'your name_mentee'], inplace=True, errors='ignore')
+    return merged
 
-    mentor_df = df[['Mentor Name'] + mentor_cols].melt(id_vars = 'Mentor Name', var_name = 'question', value_name = 'response')
-    mentor_df['role'] = 'mentor'
-    mentor_df['question'] = mentor_df['question'].str.replace('_mentor', '', regex=False)
+def participation(df, base = 'rate your experience'):
+    mentor_col = f'{base}_mentor'
+    mentee_col = f'{base}_mentee'
 
-    new_df = pd.concat([mentee_df.rename(columns = {'Mentee Name' : 'name'}), mentor_df.rename(columns = {'Mentor Name': 'name'})], ignore_index=True)
-    questions = new_df['question'].unique()
-    n_cols = 3
-    n_rows = -(-len(questions) // n_cols)
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
-    axes = axes.flatten() if n_rows > 1 else [axes]
+    mentor_missing = df[mentor_col].isna().sum()
+    mentor_total = len(df)
+    mentor_participated = mentor_total - mentor_missing
 
-    for i, q in enumerate(questions):
-        ax = axes[i]
-        temp = new_df[new_df['question'] == q].copy()
-        try:
-            temp['response'] = pd.to_numeric(temp['response'], errors='coerce')
-            temp = temp.dropna(subset=['response'])
-            sns.histplot(temp, x='response', hue='role', multiple='stack', ax=ax, kde=True)
+    mentee_missing = df[mentee_col].isna().sum()
+    mentee_total = len(df)
+    mentee_participated = mentee_total - mentee_missing
+    
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
 
-        except:
-            temp['response'] = temp['response'].astype(str).fillna('Missing')
-            sns.countplot(temp, x='response', hue='role', ax=ax)
+    axs[0].pie([mentor_participated, mentor_missing],
+               labels=['Participated', 'Missing'],
+               autopct='%1.1f%%',
+               startangle=90,
+               colors=['#66c2a5', '#fc8d62'])
+    axs[0].set_title('Mentor Participation Rate')
+    axs[0].axis('equal')
 
-        ax.set_title(f"{title_prefix} - {q}")
-        ax.set_xlabel('Response')
-        ax.set_ylabel('Count')
-        ax.tick_params(axis='x', rotation=45)
-
-    for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
+    axs[1].pie([mentee_participated, mentee_missing],
+               labels=['Participated', 'Missing'],
+               autopct='%1.1f%%',
+               startangle=90,
+               colors=['#8da0cb', '#fc8d62'])
+    axs[1].set_title('Mentee Participation Rate')
+    axs[1].axis('equal')
 
     plt.tight_layout()
     plt.show()
 
+def ave_mentor_mentee(mentors, mentees , cohort = ""):
+    mentors_mean = mentors.mean(numeric_only = True)
+    mentees_mean = mentees.mean(numeric_only = True)
+    plot_df = pd.DataFrame({'mentors_avg': mentors_mean.values,
+                           'mentees_avg': mentees_mean.values,
+                           'question': mentors_mean.index})
+    plt.figure(figsize = (10,6))
+    sns.scatterplot(data= plot_df, x = 'mentors_avg', y = 'mentees_avg', hue = 'question')
+    max_val = max(plot_df[['mentors_avg', 'mentees_avg']].max())
+    plt.plot([0, max_val], [0, max_val], '--', color = 'gray')
+
+    plt.title(f'Mentor vs Mentee Averages {cohort}')
+    plt.xlabel('Mentor Average Score')
+    plt.ylabel('Mentee Average Score')
+    plt.axis('equal')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.show()
+
+def bar_graph(df):
+    mentor_names = df['mentor_name'].combine_first(df['your name_mentor']).fillna('Unknown Mentor')
+    mentee_names = df['mentee_name'].combine_first(df['your name_mentee']).fillna('Unknown Mentee')
+    pair_label = mentor_names + ' - ' + mentee_names
+    questions = []
+    for col in df.columns:
+        if col.endswith('_mentor') and is_numeric_dtype(df[col]):
+            base = col.replace('_mentor', '')
+            if base not in questions:
+                questions.append(base)
+    n_questions = len(questions)
+    n_cols = 2
+    n_rows = math.ceil(n_questions/ n_cols)
+
+    fig, axs = plt.subplots(n_rows, n_cols, figsize = (20, 8 * n_rows))
+    axs = axs.flatten()
+    for i,q in enumerate(questions):
+        ax = axs[i]
+        mentor_col = f'{q}_mentor'
+        mentee_col = f'{q}_mentee'
+        mentor_vals = pd.to_numeric(df[mentor_col], errors='coerce')
+        mentee_vals = pd.to_numeric(df[mentee_col], errors='coerce')
+
+        plot_df = pd.DataFrame({'pair': pair_label,
+                               'mentor': mentor_vals,
+                               'mentee': mentee_vals}).dropna(how='all', subset=['mentor','mentee'])
+        plot_df.set_index('pair')[['mentor', 'mentee']].plot(kind='bar', ax=ax, color = ['#66c2a5', '#fc8d62'])
+
+        ax.set_title(q.replace('_', ' ').capitalize())
+        ax.set_ylabel('Score')
+        ax.set_xlabel('Mentor - Mentee Pair')
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+        max_val = pd.concat([mentor_vals, mentee_vals], axis = 0).max()
+        if max_val > 5:
+            ax.set_ylim(0, 10)
+        else:
+            ax.set_ylim(0,5)
+    for i in range(n_questions, n_rows*n_cols):
+        row, col =divmod(i, n_cols)
+        axs[i].set_visible(False)
+        
+    plt.tight_layout()
+    plt.show()
+
 all_data = load_csv_files(DATA_DIR)
-print("✅ CSV files loaded:")
-for key in all_data:
-    print("-", key)
 grouped_data = group_by_cohort(all_data)
 
 for cohort, files in grouped_data.items():
     try:
-        matches = files[f'matches_{cohort}']
-        mid_mentees = files[f'mid_mentee_{cohort}']
-        eop_mentees = files[f'eop_mentee_{cohort}']
-        mid_mentors = files[f'mid_mentor_{cohort}']
-        eop_mentors = files[f'eop_mentor_{cohort}']
-        mid_merged = merge_mentor_mentee(matches, mid_mentees, mid_mentors)
-        eop_merged = merge_mentor_mentee(matches, eop_mentees, eop_mentors)
-        merged = pd.concat([mid_merged, eop_merged], ignore_index=True)
-        cols_to_drop = [col for col in merged.columns if any(x in col for x in ['Satisfaction', 'Suggestion', 'Impact'])]
-        cleaned = merged.drop(columns=cols_to_drop, errors='ignore')
-        distributions(cleaned, title_prefix=f"Cohort {cohort}")
+        matches = preprocess_matches(files[f'matches_{cohort}'])
+        mid_mentees = preprocess_df(files[f'mid_mentee_{cohort}'])
+        eop_mentees = preprocess_df(files[f'eop_mentee_{cohort}'])
+        mid_mentors = preprocess_df(files[f'mid_mentor_{cohort}'])
+        eop_mentors = preprocess_df(files[f'eop_mentor_{cohort}'])
+        mid_merged = merge_mentor_mentee(mid_mentors, mid_mentees, matches)
+        eop_merged = merge_mentor_mentee(eop_mentors, eop_mentees, matches)
+
     except KeyError as e:
         print(f"Missing data for cohort {cohort}: {e}")
+
