@@ -4,7 +4,7 @@ import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_numeric_dtype, is_object_dtype
 
 DATA_DIR = "C:\\Users\\Owner\\OneDrive\\Desktop\\Dan's project"
 
@@ -80,16 +80,16 @@ def merge_mentor_mentee(mentor_df, mentee_df, matches):
     merged.drop(columns=['your name_mentor', 'your name_mentee'], inplace=True, errors='ignore')
     return merged
 
-def participation(df, base = 'rate your experience'):
+def participation(merged, base = 'rate your experience'):
     mentor_col = f'{base}_mentor'
     mentee_col = f'{base}_mentee'
 
-    mentor_missing = df[mentor_col].isna().sum()
-    mentor_total = len(df)
+    mentor_missing = merged[mentor_col].isna().sum()
+    mentor_total = len(merged)
     mentor_participated = mentor_total - mentor_missing
 
-    mentee_missing = df[mentee_col].isna().sum()
-    mentee_total = len(df)
+    mentee_missing = merged[mentee_col].isna().sum()
+    mentee_total = len(merged)
     mentee_participated = mentee_total - mentee_missing
     
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
@@ -132,13 +132,13 @@ def ave_mentor_mentee(mentors, mentees , cohort = ""):
     plt.tight_layout()
     plt.show()
 
-def bar_graph(df):
-    mentor_names = df['mentor_name'].combine_first(df['your name_mentor']).fillna('Unknown Mentor')
-    mentee_names = df['mentee_name'].combine_first(df['your name_mentee']).fillna('Unknown Mentee')
+def bar_graph(merged):
+    mentor_names = merged['mentor_name'].combine_first(merged['your name_mentor']).fillna('Unknown Mentor')
+    mentee_names = merged['mentee_name'].combine_first(merged['your name_mentee']).fillna('Unknown Mentee')
     pair_label = mentor_names + ' - ' + mentee_names
     questions = []
-    for col in df.columns:
-        if col.endswith('_mentor') and is_numeric_dtype(df[col]):
+    for col in merged.columns:
+        if col.endswith('_mentor') and is_numeric_dtype(merged[col]):
             base = col.replace('_mentor', '')
             if base not in questions:
                 questions.append(base)
@@ -152,8 +152,8 @@ def bar_graph(df):
         ax = axs[i]
         mentor_col = f'{q}_mentor'
         mentee_col = f'{q}_mentee'
-        mentor_vals = pd.to_numeric(df[mentor_col], errors='coerce')
-        mentee_vals = pd.to_numeric(df[mentee_col], errors='coerce')
+        mentor_vals = pd.to_numeric(merged[mentor_col], errors='coerce')
+        mentee_vals = pd.to_numeric(merged[mentee_col], errors='coerce')
 
         plot_df = pd.DataFrame({'pair': pair_label,
                                'mentor': mentor_vals,
@@ -176,8 +176,105 @@ def bar_graph(df):
     plt.tight_layout()
     plt.show()
 
+def plot_cat(merged):
+    questions = []
+    for col in merged.columns:
+        if col.endswith('_mentor') and is_object_dtype(merged[col]):
+            base = col.replace('_mentor', '')
+            if base.lower() != 'your name' and base not in questions:
+                questions.append(base)
+    sns.set(style='whitegrid')
+    n=len(questions)
+    fig, axs = plt.subplots(n, 1, figsize=(10, 5*n))
+    for i, q in enumerate(questions):
+        mentor_col = f'{q}_mentor'
+        mentee_col = f'{q}_mentee'
+        mentor_counts = merged[mentor_col].value_counts().sort_index()
+        mentee_counts = merged[mentee_col].value_counts().sort_index()
+        all_options = sorted(set(mentor_counts.index).union(mentee_counts.index))
+        mentor_counts = mentor_counts.reindex(all_options, fill_value=0)
+        mentee_counts = mentee_counts.reindex(all_options, fill_value=0)
+
+        # Create DataFrame for plotting
+        plot_df = pd.DataFrame({
+            'Response': all_options,
+            'Mentors': mentor_counts.values,
+            'Mentees': mentee_counts.values
+        })
+
+        plot_df.set_index('Response')[['Mentors', 'Mentees']].plot(
+            kind='bar', ax=axs[i], color=['#66c2a5', '#fc8d62']
+        )
+
+        axs[i].set_title(q.replace('_', ' ').capitalize())
+        axs[i].set_ylabel("Count")
+        axs[i].set_xlabel("Response")
+        axs[i].legend()
+        axs[i].set_xticklabels(axs[i].get_xticklabels(), rotation=44)
+
+    plt.tight_layout()
+    plt.show()
+
+def trend_data(records, merged, cohort, timepoint):
+    questions = [
+        'rate your experience',
+        'would you recommend the program?',
+        'valuable experience?',
+        'program impact?'
+    ]
+    for q in questions:
+        mentor_col = f'{q}_mentor'
+        mentee_col = f'{q}_mentee'
+        
+        merged[mentor_col] = pd.to_numeric(merged[mentor_col], errors='coerce')
+        merged[mentee_col] = pd.to_numeric(merged[mentee_col], errors='coerce') 
+        
+        records.append({
+            'cohort': int(cohort),
+            'time': timepoint,
+            'question': q,
+            'group': 'mentor',
+            'mean_score': merged[mentor_col].mean(),
+            'cohort_time': f"{cohort}_{timepoint}"
+        })
+        records.append({
+            'cohort': int(cohort),
+            'time': timepoint,
+            'question': q,
+            'group': 'mentee',
+            'mean_score': merged[mentee_col].mean(),
+            'cohort_time': f"{cohort}_{timepoint}"
+        })
+
+def plot_trends(trend_df):
+    trend_df['sort_key'] = trend_df['cohort'].astype(int) * 10 + trend_df['time'].map({'mid': 0, 'eop': 1})
+    trend_df = trend_df.sort_values('sort_key')
+    trend_df['cohort_time'] = trend_df['cohort'].astype(str) + '_' + trend_df['time']
+    for q in trend_df['question'].unique():
+        plt.figure(figsize=(10, 6))
+        data = trend_df[trend_df['question'] == q]
+        sns.lineplot(
+            data=data,
+            x='cohort_time',
+            y='mean_score',
+            hue='group',
+            markers=True,
+            style='group',
+            dashes=False
+        )
+        plt.title(f"Trend for '{q.replace('_', ' ').capitalize()}' over time")
+        plt.xlabel("Cohort")
+        plt.ylabel("Average Score")
+        plt.ylim(0, 10)
+        plt.legend(title='Group & Time')
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
 all_data = load_csv_files(DATA_DIR)
 grouped_data = group_by_cohort(all_data)
+
+trend_records = []
 
 for cohort, files in grouped_data.items():
     try:
@@ -189,6 +286,10 @@ for cohort, files in grouped_data.items():
         mid_merged = merge_mentor_mentee(mid_mentors, mid_mentees, matches)
         eop_merged = merge_mentor_mentee(eop_mentors, eop_mentees, matches)
 
+        trend_data(trend_records, mid_merged, cohort, 'mid')
+        trend_data(trend_records, eop_merged, cohort, 'eop')
     except KeyError as e:
         print(f"Missing data for cohort {cohort}: {e}")
 
+trend_records = pd.DataFrame(trend_records)
+plot_trends(trend_records)
