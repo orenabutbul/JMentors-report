@@ -9,17 +9,13 @@ import streamlit as st
 from pandas.api.types import is_numeric_dtype, is_object_dtype
 import automate
 
-DATA_DIR = "C:/Users/Owner/OneDrive/Desktop/Dan's project"
 st.title("📊 Mentor-Mentee Program Dashboard")
 
-# Load and preprocess data
-@st.cache_data
-def load_all():
-    all_data = automate.load_csv_files(DATA_DIR)
-    grouped = automate.group_by_cohort(all_data)
-    return all_data, grouped
-
-all_data, grouped_data = load_all()
+uploaded_files = st.file_uploader(
+    "Upload all CSV files (matches, mentees, mentors)", 
+    type="csv", 
+    accept_multiple_files=True
+)
 
 @st.cache_data
 def preprocess_all(grouped_data):
@@ -42,75 +38,84 @@ def preprocess_all(grouped_data):
             st.warning(f"Failed to preprocess cohort {cohort}: {e}")
     return processed
 
-preprocessed_data = preprocess_all(grouped_data)
+if uploaded_files:
+    all_data = automate.load_uploaded_files(uploaded_files) 
+    grouped_data = automate.group_by_cohort(all_data)
 
-# Cohort selection
-cohort_options = sorted(preprocessed_data.keys())
-selected_cohort = st.selectbox("Choose a cohort:", cohort_options)
+    preprocessed_data = preprocess_all(grouped_data)
 
-# Pull data for selected cohort
-files = preprocessed_data[selected_cohort]
-matches = files['matches']
-mid_mentors = files['mid_mentors']
-mid_mentees = files['mid_mentees']
-eop_mentors = files['eop_mentors']
-eop_mentees = files['eop_mentees']
+    # Cohort selection
+    cohort_options = sorted(preprocessed_data.keys())
+    selected_cohort = st.selectbox("Choose a cohort:", cohort_options)
 
-# Merge and compute trend data
-mid_merged = automate.merge_mentor_mentee(mid_mentors, mid_mentees, matches)
-eop_merged = automate.merge_mentor_mentee(eop_mentors, eop_mentees, matches)
+    # Pull data for selected cohort
+    files = preprocessed_data[selected_cohort]
+    matches = files['matches']
+    mid_mentors = files['mid_mentors']
+    mid_mentees = files['mid_mentees']
+    eop_mentors = files['eop_mentors']
+    eop_mentees = files['eop_mentees']
 
-trend_records = []
-automate.trend_data(trend_records, mid_merged, selected_cohort, 'mid')
-automate.trend_data(trend_records, eop_merged, selected_cohort, 'eop')
+    # Merge and compute trend data
+    mid_merged = automate.merge_mentor_mentee(mid_mentors, mid_mentees, matches)
+    eop_merged = automate.merge_mentor_mentee(eop_mentors, eop_mentees, matches)
 
-# Streamlit tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📋 Participation", 
-    "📍 Overall Mentors-Mentees Comparisons", 
-    "📊 Mentor vs Mentee per Question", 
-    "📦 Mentor-Mentee Word Answers", 
-    "📈 Trends"
-])
+    trend_records = []
+    automate.trend_data(trend_records, mid_merged, selected_cohort, 'mid')
+    automate.trend_data(trend_records, eop_merged, selected_cohort, 'eop')
 
-with tab1:
-    st.header("Participation")
-    st.subheader("Midpoint Participation")
-    automate.participation(mid_merged)
-    st.subheader("End of Program Participation")
-    automate.participation(eop_merged)
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📋 Participation", 
+        "📍 Overall Mentors-Mentees Comparisons", 
+        "📊 Mentor vs Mentee per Question", 
+        "📦 Mentor-Mentee Word Answers", 
+        "📈 Trends"
+    ])
 
-with tab2:
-    st.header("Overall Mentors-Mentees Comparisons")
-    automate.ave_mentor_mentee(mid_mentors, mid_mentees, cohort=selected_cohort)
+    with tab1:
+        st.header("Participation")
+        st.subheader("Midpoint Participation")
+        automate.participation(mid_merged)
+        st.subheader("End of Program Participation")
+        automate.participation(eop_merged)
 
-with tab3:
-    st.header("Mentor vs Mentee per Question")
-    automate.bar_graph(mid_merged)
-    automate.bar_graph(eop_merged)
+    with tab2:
+        st.header("Overall Mentors-Mentees Comparisons")
+        automate.ave_mentor_mentee(mid_mentors, mid_mentees, cohort=selected_cohort)
 
-with tab4:
-    st.header("Categorical Response Distribution")
-    automate.plot_cat(mid_merged)
-    automate.plot_cat(eop_merged)
+    with tab3:
+        st.header("Mentor vs Mentee per Question")
+        st.subheader("Midpoint Comparisons")
+        automate.bar_graph(mid_merged)
+        st.subheader("End of Program Comparisons")
+        automate.bar_graph(eop_merged)
 
-with tab5:
-    st.header("Trends Across Cohorts")
-    all_trend_records = []
+    with tab4:
+        st.header("Categorical Response Distribution")
+        st.subheader("Midpoint Categorical Responses")
+        automate.plot_cat(mid_merged)
+        st.subheader("End of Program Categorical Responses")
+        automate.plot_cat(eop_merged)
 
-    for cohort, files in preprocessed_data.items():
-        try:
-            mid_merged = automate.merge_mentor_mentee(files['mid_mentors'], files['mid_mentees'], files['matches'])
-            eop_merged = automate.merge_mentor_mentee(files['eop_mentors'], files['eop_mentees'], files['matches'])
+    with tab5:
+        st.header("Trends Across Cohorts")
+        all_trend_records = []
 
-            automate.trend_data(all_trend_records, mid_merged, cohort, 'mid')
-            if not eop_merged.empty:
-                automate.trend_data(all_trend_records, eop_merged, cohort, 'eop')
-        except Exception as e:
-            st.warning(f"Trend error in cohort {cohort}: {e}")
+        for cohort, files in preprocessed_data.items():
+            try:
+                mid_merged = automate.merge_mentor_mentee(files['mid_mentors'], files['mid_mentees'], files['matches'])
+                eop_merged = automate.merge_mentor_mentee(files['eop_mentors'], files['eop_mentees'], files['matches'])
 
-    if all_trend_records:
-        trend_df = pd.DataFrame(all_trend_records)
-        automate.plot_trends(trend_df)
-    else:
-        st.info("No trend data available.")
+                automate.trend_data(all_trend_records, mid_merged, cohort, 'mid')
+                if not eop_merged.empty:
+                    automate.trend_data(all_trend_records, eop_merged, cohort, 'eop')
+            except Exception as e:
+                st.warning(f"Trend error in cohort {cohort}: {e}")
+
+        if all_trend_records:
+            trend_df = pd.DataFrame(all_trend_records)
+            automate.plot_trends(trend_df)
+        else:
+            st.info("No trend data available.")
+else:
+    st.info("Please upload the CSV files to view the dashboard.")

@@ -7,9 +7,15 @@ import math
 from pandas.api.types import is_numeric_dtype, is_object_dtype
 import streamlit as st
 
-DATA_DIR = "C:\\Users\\Owner\\OneDrive\\Desktop\\Dan's project"
-
-csv_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
+def load_uploaded_files(uploaded_files):
+    data = {}
+    for file in uploaded_files:
+        filename = file.name
+        df = pd.read_csv(file)
+        key = clean_key(filename)
+        df.columns = df.columns.str.strip()
+        data[key] = df
+    return data
 
 def clean_key(filename):
     name = filename.lower().replace('.csv', '').replace(' ', '_')
@@ -25,17 +31,6 @@ def clean_key(filename):
         return f"eop_mentor_{re.findall(r'\d+', name)[0]}"
     else:
         return name 
-
-def load_csv_files(data_dir):
-    files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-    data = {}
-    for f in files:
-        df = pd.read_csv(os.path.join(data_dir, f))
-        df.columns = df.columns.str.strip() 
-        key = clean_key(f)
-        data[key] = df
-    return data
-
 
 def group_by_cohort(data_dict):
     grouped = {}
@@ -292,25 +287,3 @@ def plot_trends(trend_df):
 
     plt.tight_layout()
     st.pyplot(fig)
-
-all_data = load_csv_files(DATA_DIR)
-grouped_data = group_by_cohort(all_data)
-
-trend_records = []
-
-for cohort, files in grouped_data.items():
-    try:
-        matches = preprocess_matches(files[f'matches_{cohort}'])
-        mid_mentees = preprocess_df(files[f'mid_mentee_{cohort}'])
-        eop_mentees = preprocess_df(files[f'eop_mentee_{cohort}'])
-        mid_mentors = preprocess_df(files[f'mid_mentor_{cohort}'])
-        eop_mentors = preprocess_df(files[f'eop_mentor_{cohort}'])
-        mid_merged = merge_mentor_mentee(mid_mentors, mid_mentees, matches)
-        eop_merged = merge_mentor_mentee(eop_mentors, eop_mentees, matches)
-
-        trend_data(trend_records, mid_merged, cohort, 'mid')
-        trend_data(trend_records, eop_merged, cohort, 'eop')
-    except KeyError as e:
-        print(f"Missing data for cohort {cohort}: {e}")
-
-#plot_trends(trend_records)
