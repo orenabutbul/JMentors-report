@@ -81,7 +81,13 @@ if uploaded_files:
 
     with tab2:
         st.header("Overall Mentors-Mentees Comparisons")
+        st.subheader("Midpoint Average Scores")
         automate.ave_mentor_mentee(mid_mentors, mid_mentees, cohort=selected_cohort)
+        automate.survey_avg(mid_mentors, mid_mentees, cohort=selected_cohort)
+
+        st.subheader("End of Program Average Scores")
+        automate.ave_mentor_mentee(eop_mentors, eop_mentees, cohort=selected_cohort)
+        automate.survey_avg(eop_mentors, eop_mentees, cohort=selected_cohort)
 
     with tab3:
         st.header("Mentor vs Mentee per Question")

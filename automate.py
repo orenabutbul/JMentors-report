@@ -134,6 +134,26 @@ def ave_mentor_mentee(mentors, mentees , cohort = ""):
     plt.tight_layout()
     st.pyplot(plt.gcf())
 
+def survey_avg(mentors, mentees, cohort=""):
+    mentor_avg = mentors.mean(numeric_only=True)
+    mentee_avg = mentees.mean(numeric_only=True)
+    
+    plot_df = pd.DataFrame({
+        'Mentor Average': mentor_avg,
+        'Mentee Average': mentee_avg
+    }).reset_index().rename(columns={'index': 'Question'})
+    
+    plt.figure(figsize=(12, 6))
+    sns.barplot(data=plot_df.melt(id_vars='Question'), x='Question', y='value', hue='variable')
+    
+    plt.title(f'Average Scores for Mentors and Mentees {cohort}')
+    plt.xlabel('Survey Questions')
+    plt.ylabel('Average Score')
+    plt.xticks(rotation=45)
+    plt.legend(title='Group')
+    plt.tight_layout()
+    st.pyplot(plt.gcf())
+
 def bar_graph(merged):
     mentor_names = merged['mentor_name'].fillna('Unknown Mentor')
     mentee_names = merged['mentee_name'].fillna('Unknown Mentee')
@@ -287,3 +307,4 @@ def plot_trends(trend_df):
 
     plt.tight_layout()
     st.pyplot(fig)
+    
